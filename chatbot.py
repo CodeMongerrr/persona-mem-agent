@@ -1,34 +1,68 @@
 from langchain_community.llms import Ollama
 from memory import store_memory, recall_memories
-
+from collections import deque
+import json
+from datetime import datetime
 llm = Ollama(model="llama3.2")
 
 SYSTEM_PROMPT = """
 You are a personal growth and habit tracking assistant.
 You remember the user's habits, sleep patterns, goals, and struggles.
-Use past memories to give personalized advice.
+You are supportive but honest.
+You track patterns over time and gently point out inconsistencies.
+You celebrate progress.
 """
 
-def chat(user_input: str):
-    memories = recall_memories(user_input)
+# Short-term memory buffer
+chat_history = deque(maxlen=8)
+MEMORY_FILTER_PROMPT = """
+Decide if this message contains a long-term personal fact, habit, goal, or preference.
+Only answer YES or NO.
 
-    memory_context = "\n".join(memories)
+Message: "{user_input}"
+"""
+
+MEMORY_EXTRACTION_PROMPT = """
+Extract structured personal memory from this message.
+
+Return JSON with:
+- category: one of [goal, habit, preference, struggle, schedule, health, other]
+- summary: short memory to store
+
+Message: "{user_input}"
+JSON:
+"""
+
+
+def chat(user_input: str):
+    # Long-term memory recall
+    memories = recall_memories(user_input)
+    memory_context = "\n".join(f"- {m}" for m in memories)
+
+    # Short-term memory
+    recent_context = "\n".join(chat_history)
 
     prompt = f"""
-    {SYSTEM_PROMPT}
+{SYSTEM_PROMPT}
 
-    Relevant past memories:
-    {memory_context}
+Long-term memories about the user:
+{memory_context}
 
-    User: {user_input}
-    Assistant:
-    """
+Recent conversation:
+{recent_context}
+
+User: {user_input}
+Assistant:
+"""
 
     response = llm.invoke(prompt)
 
-    # Store important memories automatically
-    if "I" in user_input:
-        store_memory(user_input)
+    # Store meaningful memories
+    store_memory(llm, user_input)
+
+    # Update short-term memory
+    chat_history.append(f"User: {user_input}")
+    chat_history.append(f"Assistant: {response}")
 
     return response
 
